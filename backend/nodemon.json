@@ -1,0 +1,8 @@
+{
+  "watch": ["*.js", "services/*.js"],
+  "ignore": ["node_modules"],
+  "delay": "2500",
+  "events": {
+    "restart": "lsof -ti:3001 | xargs kill -9 2>/dev/null || true"
+  }
+}

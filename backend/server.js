@@ -11,7 +11,7 @@ import sharp from 'sharp';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import pool, { initDB } from './db.js';
-import openrouterService from './services/openrouter.js';
+import openrouterService, { assertOpenRouterConfigured } from './services/openrouter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,7 +20,28 @@ dotenv.config({ path: join(__dirname, '..', '.env') });
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Resolve secrets at boot. In production we hard-fail; in dev we still allow a
+// long random-but-known dev secret so contributors aren't blocked.
+function resolveJwtSecret() {
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length > 0) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    // eslint-disable-next-line no-console
+    console.error('JWT_SECRET must be set in production. Refusing to start.');
+    process.exit(1);
+  }
+  return 'dev-only-insecure-secret-do-not-use-in-prod';
+}
+const JWT_SECRET = resolveJwtSecret();
+
+// Validate the OpenRouter key — throws in prod, warns in dev (defined in openrouter.js).
+try {
+  assertOpenRouterConfigured();
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.error(err.message);
+  process.exit(1);
+}
 
 // Security middleware
 app.use(helmet({
@@ -39,13 +60,40 @@ const authLimiter = rateLimit({
   max: 20,
   message: { error: 'Too many auth attempts, please try again later' }
 });
+/**
+ * AI rate limiter — 20 requests/hour per user.
+ *
+ * Note: this middleware is mounted on /api/ai/ before any per-route
+ * `authenticateToken` middleware runs, so `req.user` is undefined when the
+ * limiter fires. To still get per-user keying we decode the JWT here directly
+ * (without throwing). On failure we fall back to client IP so unauthenticated
+ * abuse can still be throttled.
+ */
+const aiRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { error: 'Too many AI requests. Please wait before retrying.' },
+  keyGenerator: (req) => {
+    if (req.user && req.user.id) return `user:${req.user.id}`;
+    const auth = req.headers && req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      const token = auth.slice(7);
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.id) return `user:${decoded.id}`;
+      } catch (_) { /* fall through to ip */ }
+    }
+    return req.ip;
+  }
+});
 app.use('/api/', generalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/password-reset', authLimiter);
+app.use('/api/ai/', aiRateLimiter);
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -2709,6 +2757,731 @@ app.post('/api/bulk/update', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/contractors/ai-match — AI contractor matcher
+app.post('/api/contractors/ai-match', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, job_type, budget_range } = req.body;
+    if (!floor_plan_id || !job_type) {
+      return res.status(400).json({ error: 'floor_plan_id and job_type are required' });
+    }
+
+    // Fetch all contractors
+    const contractorsResult = await pool.query('SELECT * FROM contractors ORDER BY rating DESC NULLS LAST');
+
+    // Fetch cost estimates for this floor plan
+    const estimatesResult = await pool.query(
+      'SELECT * FROM estimates WHERE floor_plan_id = $1',
+      [floor_plan_id]
+    );
+
+    const result = await openrouterService.matchContractors(
+      contractorsResult.rows,
+      estimatesResult.rows,
+      job_type,
+      budget_range || 'Not specified'
+    );
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || 'AI contractor matching failed' });
+    }
+
+    // Persist to ai_analyses if table exists
+    try {
+      await pool.query(
+        `INSERT INTO ai_analyses (floor_plan_id, user_id, analysis_type, content, model, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT DO NOTHING`,
+        [floor_plan_id, req.user.id, 'contractor-match', result.analysis, result.model]
+      );
+    } catch { /* table may not exist, skip */ }
+
+    res.json({
+      analysis: result.analysis,
+      parsed: result.parsed,
+      contractors_evaluated: contractorsResult.rows.length,
+      estimates_considered: estimatesResult.rows.length,
+      model: result.model,
+      processingTimeMs: result.processingTimeMs
+    });
+  } catch (err) {
+    console.error('Contractor AI match error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/floor-plans/portfolio-analysis — Multi-property portfolio analyzer
+app.post('/api/floor-plans/portfolio-analysis', authenticateToken, async (req, res) => {
+  try {
+    // Fetch all user's floor plans
+    const floorPlansResult = await pool.query(
+      'SELECT * FROM floor_plans WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+
+    if (floorPlansResult.rows.length === 0) {
+      return res.status(400).json({ error: 'No floor plans found for this user' });
+    }
+
+    // Fetch rooms and existing analyses for each floor plan
+    const floorPlans = await Promise.all(floorPlansResult.rows.map(async (fp) => {
+      const [roomsResult, analysesResult] = await Promise.all([
+        pool.query('SELECT * FROM rooms WHERE floor_plan_id = $1', [fp.id]),
+        pool.query(
+          `SELECT analysis_type, created_at FROM full_analyses WHERE floor_plan_id = $1
+           UNION ALL
+           SELECT 'layout' AS analysis_type, created_at FROM layout_optimizations WHERE floor_plan_id = $1
+           ORDER BY created_at DESC LIMIT 5`,
+          [fp.id]
+        ).catch(() => ({ rows: [] }))
+      ]);
+      return { ...fp, rooms: roomsResult.rows, analyses: analysesResult.rows };
+    }));
+
+    const result = await openrouterService.analyzePortfolio(floorPlans);
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || 'Portfolio analysis failed' });
+    }
+
+    // Persist result
+    try {
+      await pool.query(
+        `INSERT INTO ai_analyses (user_id, analysis_type, content, model, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [req.user.id, 'portfolio-analysis', result.analysis, result.model]
+      );
+    } catch { /* table may not exist, skip */ }
+
+    res.json({
+      analysis: result.analysis,
+      parsed: result.parsed,
+      properties_analyzed: floorPlans.length,
+      model: result.model,
+      processingTimeMs: result.processingTimeMs
+    });
+  } catch (err) {
+    console.error('Portfolio analysis error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/floor-plans/comparable-analysis — Comparable Property Analyzer
+// Cross-references floor plan data with real estate comps to estimate renovation ROI in the specific market
+app.post('/api/floor-plans/comparable-analysis', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, property_address } = req.body;
+
+    if (!floor_plan_id || !property_address) {
+      return res.status(400).json({ error: 'floor_plan_id and property_address are required' });
+    }
+
+    // Fetch the floor plan with its analysis
+    const floorPlanResult = await pool.query(
+      'SELECT * FROM floor_plans WHERE id = $1 AND user_id = $2',
+      [floor_plan_id, req.user.id]
+    );
+    if (floorPlanResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Floor plan not found' });
+    }
+    const floorPlan = floorPlanResult.rows[0];
+
+    // Fetch rooms for more context
+    const roomsResult = await pool.query('SELECT * FROM rooms WHERE floor_plan_id = $1', [floor_plan_id]);
+
+    // Fetch cost estimates if any
+    const costResult = await pool.query(
+      'SELECT * FROM cost_estimates WHERE floor_plan_id = $1 ORDER BY created_at DESC LIMIT 5',
+      [floor_plan_id]
+    );
+
+    const floorPlanSummary = {
+      name: floorPlan.name,
+      description: floorPlan.description,
+      rooms: roomsResult.rows.map(r => ({ name: r.name, type: r.type, area: r.area })),
+      ai_analysis_preview: floorPlan.ai_analysis ? JSON.stringify(floorPlan.ai_analysis).substring(0, 1000) : null,
+    };
+
+    const renovationData = costResult.rows.length > 0
+      ? { estimates: costResult.rows.map(e => ({ category: e.category, amount: e.amount, description: e.description })) }
+      : null;
+
+    const result = await openrouterService.analyzeComparableProperty(floorPlanSummary, property_address, renovationData);
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || 'Comparable analysis failed' });
+    }
+
+    // Log to AI history
+    try {
+      await pool.query(
+        'INSERT INTO ai_analyses (floor_plan_id, user_id, analysis_type, result, model_used) VALUES ($1, $2, $3, $4, $5)',
+        [floor_plan_id, req.user.id, 'comparable-analysis', JSON.stringify(result.analysis), result.model]
+      );
+    } catch {}
+
+    res.json({
+      floor_plan_id,
+      property_address,
+      analysis: result.analysis,
+      model_used: result.model,
+      generated_at: result.generated_at,
+    });
+  } catch (err) {
+    console.error('Comparable analysis error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ AI ACCESSIBILITY CHECK ============
+// Identify accessibility issues (ADA, aging-in-place) on a floor plan.
+app.post('/api/ai/accessibility-check', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, audience = 'general' } = req.body || {};
+    if (!floor_plan_id) {
+      return res.status(400).json({ error: 'floor_plan_id is required' });
+    }
+
+    const fpResult = await pool.query(
+      'SELECT * FROM floor_plans WHERE id = $1 AND user_id = $2',
+      [floor_plan_id, req.user.id]
+    );
+    if (fpResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Floor plan not found' });
+    }
+
+    const roomsResult = await pool.query(
+      'SELECT * FROM rooms WHERE floor_plan_id = $1',
+      [floor_plan_id]
+    );
+
+    const floorPlan = fpResult.rows[0];
+
+    const prompt = `You are an accessibility consultant (ADA + universal design + aging-in-place). Audit this floor plan and return STRICT JSON only.
+
+FLOOR PLAN:
+- Name: ${floorPlan.name}
+- Total area (sqft): ${floorPlan.total_area_sqft || 'unknown'}
+- Floors: ${floorPlan.floors || 1}
+- Description: ${floorPlan.description || 'N/A'}
+
+ROOMS (${roomsResult.rows.length}):
+${roomsResult.rows.map(r => `- ${r.name} (${r.type}) area=${r.area_sqft || 'N/A'} sqft, dimensions=${r.dimensions || 'N/A'}`).join('\n') || '(none)'}
+
+AUDIENCE: ${audience}  // one of: general | wheelchair | aging-in-place | visual-impairment | family-with-children
+
+Return ONLY JSON in this exact shape:
+{
+  "compliance_score": 0,                    // 0-100
+  "ada_status": "compliant|partial|non_compliant",
+  "findings": [
+    { "room": "string", "issue": "string", "severity": "low|medium|high", "code_reference": "ADA 4.13|N/A", "estimated_fix_cost_usd": 0 }
+  ],
+  "doorway_widths_warnings": ["..."],
+  "ramp_and_stair_warnings": ["..."],
+  "bathroom_accessibility_notes": ["..."],
+  "kitchen_accessibility_notes": ["..."],
+  "recommended_modifications": [
+    { "modification": "string", "priority": "low|medium|high", "estimated_cost_usd": 0 }
+  ],
+  "summary": "1-2 sentence executive summary",
+  "disclaimer": "Not a substitute for a certified ADA inspection."
+}`;
+
+    let raw;
+    let modelUsed = 'openrouter';
+    try {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      const model = process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet-20241022';
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.CLIENT_URL || 'http://localhost:3000',
+          'X-Title': 'AI Floor Plan Analyzer',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: 'You are an accessibility consultant. Return strict JSON only.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`OpenRouter ${r.status}: ${t}`);
+      }
+      const data = await r.json();
+      raw = data.choices?.[0]?.message?.content || '';
+    } catch (aiErr) {
+      console.error('Accessibility-check AI failure:', aiErr.message);
+      modelUsed = 'local_fallback';
+      raw = JSON.stringify({
+        compliance_score: 50,
+        ada_status: 'partial',
+        findings: roomsResult.rows.map(r => ({
+          room: r.name,
+          issue: 'AI unavailable; review doorway widths (≥32"), turning radius (≥60"), and bathroom grab bars.',
+          severity: 'medium',
+          code_reference: 'ADA 4.13',
+          estimated_fix_cost_usd: 0,
+        })),
+        doorway_widths_warnings: ['Verify all doorways meet 32" clear width minimum.'],
+        ramp_and_stair_warnings: ['Verify ramp slope ≤ 1:12, handrails on both sides.'],
+        bathroom_accessibility_notes: ['Consider grab bars, curbless shower, raised toilet seat.'],
+        kitchen_accessibility_notes: ['Consider 36" clearance and lower counter sections.'],
+        recommended_modifications: [],
+        summary: 'AI unavailable; this is a generic checklist. Re-run for tailored audit.',
+        disclaimer: 'Not a substitute for a certified ADA inspection.',
+      });
+    }
+
+    let parsed = null;
+    try {
+      const codeBlockMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+      parsed = codeBlockMatch ? JSON.parse(codeBlockMatch[1]) : JSON.parse(raw);
+    } catch (e) {
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try { parsed = JSON.parse(raw.slice(start, end + 1)); } catch { /* keep null */ }
+      }
+    }
+
+    res.json({
+      success: true,
+      analysis: parsed || { raw },
+      model: modelUsed,
+      audience,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Accessibility-check error:', err);
+    res.status(500).json({ error: err.message || 'Failed to run accessibility check' });
+  }
+});
+
+// ============ AI: Sustainability / Carbon Footprint (apply pass 4) ============
+app.post('/api/ai/sustainability-analysis', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, climate_zone, primary_energy_source, materials_focus } = req.body || {};
+    if (!floor_plan_id) {
+      return res.status(400).json({ error: 'floor_plan_id is required' });
+    }
+    const fpResult = await pool.query(
+      'SELECT * FROM floor_plans WHERE id = $1 AND user_id = $2',
+      [floor_plan_id, req.user.id]
+    );
+    if (fpResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Floor plan not found' });
+    }
+    const roomsResult = await pool.query(
+      'SELECT * FROM rooms WHERE floor_plan_id = $1',
+      [floor_plan_id]
+    );
+    const fp = fpResult.rows[0];
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing' });
+    }
+
+    const prompt = `You are a building sustainability analyst (LEED, Energy Star, embodied carbon). Audit the floor plan and return STRICT JSON only.
+
+FLOOR PLAN:
+- Name: ${fp.name}
+- Total area (sqft): ${fp.total_area_sqft || 'unknown'}
+- Floors: ${fp.floors || 1}
+- Description: ${fp.description || 'N/A'}
+
+ROOMS (${roomsResult.rows.length}):
+${roomsResult.rows.map(r => `- ${r.name} (${r.type}) area=${r.area_sqft || 'N/A'} sqft`).join('\n') || '(none)'}
+
+CONTEXT:
+- Climate zone: ${climate_zone || 'unknown'}
+- Primary energy source: ${primary_energy_source || 'unknown'}
+- Materials focus: ${materials_focus || 'general'}
+
+Return ONLY JSON:
+{
+  "sustainability_score": 0,
+  "estimated_annual_co2_tons": 0,
+  "embodied_carbon_kg_co2e_per_sqft": 0,
+  "operational_carbon_breakdown": {"heating_pct": 0, "cooling_pct": 0, "lighting_pct": 0, "appliances_pct": 0, "hot_water_pct": 0},
+  "high_impact_recommendations": [{"action": "string", "category": "envelope|hvac|lighting|materials|water|renewables", "estimated_co2_reduction_tons_per_year": 0, "estimated_cost_usd": 0, "payback_years": 0}],
+  "material_swaps": [{"current": "string", "swap_to": "string", "embodied_carbon_savings_pct": 0}],
+  "leed_credits_likely": ["credit"],
+  "summary": "string",
+  "disclaimer": "Indicative only; verify with a certified energy modeler."
+}`;
+
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.CLIENT_URL || 'http://localhost:3000',
+        'X-Title': 'AI Floor Plan Analyzer',
+      },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet-20241022',
+        messages: [
+          { role: 'system', content: 'You are a building sustainability analyst. Return strict JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      return res.status(502).json({ error: `OpenRouter ${r.status}: ${t.slice(0, 200)}` });
+    }
+    const data = await r.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+    let parsed = null;
+    try {
+      const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      parsed = fence ? JSON.parse(fence[1]) : JSON.parse(raw);
+    } catch {
+      const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+      if (s >= 0 && e > s) { try { parsed = JSON.parse(raw.slice(s, e + 1)); } catch {} }
+    }
+    res.json({
+      success: true,
+      analysis: parsed || { raw },
+      model: 'openrouter',
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('sustainability-analysis error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ AI: Contractor Bid Comparison (apply pass 4) ============
+app.post('/api/ai/contractor-bid-comparison', authenticateToken, async (req, res) => {
+  try {
+    const { project_summary, scope, bids } = req.body || {};
+    if (!project_summary || !Array.isArray(bids) || bids.length < 2) {
+      return res.status(400).json({ error: 'project_summary and at least 2 bids are required' });
+    }
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing' });
+    }
+
+    const bidLines = bids.map((b, i) => {
+      const price = b?.price ?? 'n/a';
+      const timeline = b?.timeline_weeks ?? 'n/a';
+      const contractor = b?.contractor_name || `Bid ${i + 1}`;
+      const inclusions = Array.isArray(b?.inclusions) ? b.inclusions.join('; ') : (b?.inclusions || 'n/a');
+      const notes = b?.notes || '';
+      return `Bid ${i + 1} — ${contractor}: price=${price}, timeline_weeks=${timeline}, inclusions=${inclusions}${notes ? `, notes=${notes}` : ''}`;
+    }).join('\n');
+
+    const prompt = `You are a construction project manager. Compare these contractor bids head-to-head and recommend a choice.
+
+PROJECT:
+${project_summary}
+
+SCOPE:
+${scope || 'n/a'}
+
+BIDS:
+${bidLines}
+
+Return ONLY JSON:
+{
+  "comparison_table": [{"contractor": "string", "price": 0, "timeline_weeks": 0, "value_score": 0, "risk_score": 0, "strengths": ["string"], "concerns": ["string"]}],
+  "best_overall": "string",
+  "best_value": "string",
+  "lowest_risk": "string",
+  "questions_to_ask": ["string"],
+  "red_flags": ["string"],
+  "negotiation_levers": ["string"],
+  "summary": "string"
+}`;
+
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.CLIENT_URL || 'http://localhost:3000',
+        'X-Title': 'AI Floor Plan Analyzer',
+      },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet-20241022',
+        messages: [
+          { role: 'system', content: 'You are a construction project manager. Return strict JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      return res.status(502).json({ error: `OpenRouter ${r.status}: ${t.slice(0, 200)}` });
+    }
+    const data = await r.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+    let parsed = null;
+    try {
+      const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      parsed = fence ? JSON.parse(fence[1]) : JSON.parse(raw);
+    } catch {
+      const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+      if (s >= 0 && e > s) { try { parsed = JSON.parse(raw.slice(s, e + 1)); } catch {} }
+    }
+    res.json({
+      success: true,
+      analysis: parsed || { raw },
+      model: 'openrouter',
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('contractor-bid-comparison error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// Apply pass 5 — additive AI endpoints (NEEDS-CREDS: OPENROUTER_API_KEY)
+// All return 503 + { missing: 'OPENROUTER_API_KEY' } when key absent.
+// PRODUCT-DECISION: keep inline fetch pattern (matches prior pass 2/4 endpoints)
+// rather than refactor to openrouterService — that refactor is its own backlog item.
+// ============================================================================
+
+// Helper: parse strict-JSON or fenced JSON from LLM output
+function _parseLooseJson(raw) {
+  try {
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    return fence ? JSON.parse(fence[1]) : JSON.parse(raw);
+  } catch {
+    const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+    if (s >= 0 && e > s) { try { return JSON.parse(raw.slice(s, e + 1)); } catch {} }
+  }
+  return null;
+}
+
+async function _callOpenRouter({ system, user, temperature = 0.3 }) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return { missingKey: true };
+  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.CLIENT_URL || 'http://localhost:3000',
+      'X-Title': 'AI Floor Plan Analyzer',
+    },
+    body: JSON.stringify({
+      model: process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet-20241022',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature,
+    }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    return { upstreamError: `OpenRouter ${r.status}: ${t.slice(0, 200)}` };
+  }
+  const data = await r.json();
+  const raw = data.choices?.[0]?.message?.content || '';
+  return { raw, parsed: _parseLooseJson(raw) };
+}
+
+// POST /api/ai/space-plan
+// Generates a multi-room space plan suggestion based on lifestyle / household.
+app.post('/api/ai/space-plan', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, household_size, lifestyle, priorities, budget } = req.body || {};
+    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fp = fpQ.rows?.[0];
+    if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
+    const out = await _callOpenRouter({
+      system: 'You are a residential space planner. Return strict JSON only.',
+      user: `Plan space allocation for floor plan "${fp.name}" (${fp.total_sqft} sqft).
+Household: ${household_size || 2}
+Lifestyle: ${lifestyle || 'modern professional'}
+Priorities: ${Array.isArray(priorities) ? priorities.join(', ') : (priorities || 'comfort, productivity')}
+Budget: ${budget || 'mid-range'}
+
+Return ONLY JSON:
+{
+  "zoning_strategy": "string",
+  "room_recommendations": [{ "room": "string", "purpose": "string", "size_target_sqft": 0, "key_features": ["string"] }],
+  "circulation_notes": "string",
+  "natural_light_strategy": "string",
+  "future_proofing": ["string"]
+}`,
+    });
+    if (out.missingKey) return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing', missing: 'OPENROUTER_API_KEY' });
+    if (out.upstreamError) return res.status(502).json({ error: out.upstreamError });
+    res.json({ success: true, analysis: out.parsed || { raw: out.raw }, model: 'openrouter', generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('space-plan error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/zoning-compliance
+// Lightweight zoning / setback compliance heuristic; advisory only.
+// PRODUCT-DECISION: jurisdiction defaults to "generic US residential" — accurate compliance
+// requires a paid jurisdiction-specific dataset which is out of scope here.
+app.post('/api/ai/zoning-compliance', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, jurisdiction, lot_size_sqft, intended_use } = req.body || {};
+    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fp = fpQ.rows?.[0];
+    if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
+    const out = await _callOpenRouter({
+      system: 'You are a residential zoning consultant. Return strict JSON only. Provide ADVISORY guidance, not legal opinion.',
+      user: `Provide an ADVISORY compliance review for "${fp.name}" (${fp.total_sqft} sqft).
+Jurisdiction: ${jurisdiction || 'Generic US residential R-1'}
+Lot size: ${lot_size_sqft || 'unspecified'} sqft
+Intended use: ${intended_use || 'single-family dwelling'}
+
+Return ONLY JSON:
+{
+  "advisory_only": true,
+  "likely_zoning_class": "string",
+  "compliance_summary": "string",
+  "concerns": [{ "topic": "string", "severity": "low|medium|high", "explanation": "string" }],
+  "checklist": [{ "item": "string", "status": "likely_ok|verify|likely_issue" }],
+  "next_steps": ["string"]
+}`,
+    });
+    if (out.missingKey) return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing', missing: 'OPENROUTER_API_KEY' });
+    if (out.upstreamError) return res.status(502).json({ error: out.upstreamError });
+    res.json({ success: true, analysis: out.parsed || { raw: out.raw }, model: 'openrouter', generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('zoning-compliance error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/renovation-roadmap
+// Multi-phase renovation plan with sequencing, dependencies, and est. costs.
+app.post('/api/ai/renovation-roadmap', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, total_budget, timeline_months, must_haves, nice_to_haves } = req.body || {};
+    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fp = fpQ.rows?.[0];
+    if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
+    const out = await _callOpenRouter({
+      system: 'You are a renovation project sequencing expert. Return strict JSON only.',
+      user: `Build a phased renovation roadmap for "${fp.name}".
+Total budget: ${total_budget || 'unspecified'}
+Timeline: ${timeline_months || 12} months
+Must-haves: ${Array.isArray(must_haves) ? must_haves.join('; ') : (must_haves || 'none')}
+Nice-to-haves: ${Array.isArray(nice_to_haves) ? nice_to_haves.join('; ') : (nice_to_haves || 'none')}
+
+Return ONLY JSON:
+{
+  "phases": [{
+    "phase": 1,
+    "title": "string",
+    "duration_weeks": 0,
+    "budget_estimate": 0,
+    "tasks": ["string"],
+    "dependencies": ["string"],
+    "permits_likely": ["string"]
+  }],
+  "live_in_disruption_score": 1,
+  "value_capture_summary": "string",
+  "risk_register": [{ "risk": "string", "mitigation": "string" }]
+}`,
+    });
+    if (out.missingKey) return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing', missing: 'OPENROUTER_API_KEY' });
+    if (out.upstreamError) return res.status(502).json({ error: out.upstreamError });
+    res.json({ success: true, analysis: out.parsed || { raw: out.raw }, model: 'openrouter', generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('renovation-roadmap error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/insurance-risk-review
+// Surfaces insurance-relevant risks (electrical, structural, water, fire) advisory only.
+app.post('/api/ai/insurance-risk-review', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, year_built, prior_claims, location_hazards } = req.body || {};
+    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fp = fpQ.rows?.[0];
+    if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
+    const out = await _callOpenRouter({
+      system: 'You are a residential insurance risk consultant. Return strict JSON only. Advisory only.',
+      user: `Generate an insurance-risk review for "${fp.name}".
+Year built: ${year_built || 'unknown'}
+Prior claims: ${Array.isArray(prior_claims) ? prior_claims.join('; ') : (prior_claims || 'none reported')}
+Location hazards: ${Array.isArray(location_hazards) ? location_hazards.join(', ') : (location_hazards || 'standard')}
+
+Return ONLY JSON:
+{
+  "advisory_only": true,
+  "overall_risk_band": "low|moderate|elevated|high",
+  "risk_categories": [{ "category": "string", "rating": "low|moderate|high", "indicators": ["string"], "mitigations": ["string"] }],
+  "premium_drivers": ["string"],
+  "premium_savers": ["string"],
+  "recommended_inspections": ["string"]
+}`,
+    });
+    if (out.missingKey) return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing', missing: 'OPENROUTER_API_KEY' });
+    if (out.upstreamError) return res.status(502).json({ error: out.upstreamError });
+    res.json({ success: true, analysis: out.parsed || { raw: out.raw }, model: 'openrouter', generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('insurance-risk-review error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/resale-value-projection
+// Projects resale value uplift from proposed changes. Advisory only.
+app.post('/api/ai/resale-value-projection', authenticateToken, async (req, res) => {
+  try {
+    const { floor_plan_id, market_tier, proposed_changes, current_estimate } = req.body || {};
+    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fp = fpQ.rows?.[0];
+    if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
+    const out = await _callOpenRouter({
+      system: 'You are a residential real-estate analyst. Return strict JSON only. Advisory.',
+      user: `Project resale value uplift for "${fp.name}" (${fp.total_sqft} sqft).
+Market tier: ${market_tier || 'mid-market suburban'}
+Current estimate: ${current_estimate || 'unspecified'}
+Proposed changes: ${Array.isArray(proposed_changes) ? proposed_changes.join('; ') : (proposed_changes || 'none')}
+
+Return ONLY JSON:
+{
+  "advisory_only": true,
+  "baseline_value_band": { "low": 0, "high": 0 },
+  "post_change_value_band": { "low": 0, "high": 0 },
+  "roi_estimates": [{ "change": "string", "cost": 0, "expected_uplift": 0, "roi_pct": 0 }],
+  "buyer_appeal_notes": "string",
+  "market_risks": ["string"]
+}`,
+    });
+    if (out.missingKey) return res.status(503).json({ error: 'AI not configured: OPENROUTER_API_KEY is missing', missing: 'OPENROUTER_API_KEY' });
+    if (out.upstreamError) return res.status(502).json({ error: out.upstreamError });
+    res.json({ success: true, analysis: out.parsed || { raw: out.raw }, model: 'openrouter', generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('resale-value-projection error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.use('/api/agentic-home-designer', (await import('./routes/agenticHomeDesigner.js')).default);
+app.use('/api/cv-floor-plan-parse', (await import('./routes/cvFloorPlanParse.js')).default);
+app.use('/api/ar-visualisation', (await import('./routes/arVisualisation.js')).default);
+app.use('/api/sustainability-analysis', (await import('./routes/sustainabilityAnalysis.js')).default);
+app.use('/api/financing-options', (await import('./routes/financingOptions.js')).default);
+app.use('/api/contractor-marketplace', (await import('./routes/contractorMarketplace.js')).default);
+app.use('/api/project-timeline', (await import('./routes/projectTimeline.js')).default);
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -2729,6 +3502,14 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
+
+
+// === Batch 03 Gaps & Frontend Mounts ===
+try {
+  const _batch03 = require('./routes/batch03Gaps');
+  if (typeof authenticateToken === 'function') app.use('/api', authenticateToken, _batch03);
+  else app.use('/api', _batch03);
+} catch (_e) { /* batch03 gap routes optional */ }
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

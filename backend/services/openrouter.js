@@ -8,7 +8,39 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-haiku-4.5';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet-20241022';
+// HTTP-Referer is required by OpenRouter for analytics. Pull it from env so deployments
+// can advertise their actual host instead of the previously hard-coded localhost value.
+const AI_REFERER = process.env.AI_HTTP_REFERER || process.env.CLIENT_URL || 'http://localhost:3000';
+
+/**
+ * Validate OpenRouter is configured at startup. Throws in production so we fail
+ * fast; warns in dev so local tinkering still boots.
+ */
+export function assertOpenRouterConfigured() {
+  if (!OPENROUTER_API_KEY) {
+    const msg = 'OPENROUTER_API_KEY is not set — AI endpoints will fail.';
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(msg);
+    }
+    // eslint-disable-next-line no-console
+    console.warn(msg);
+  }
+}
+
+// Robust JSON parser: tries 3 strategies before returning raw text
+function parseJsonResponse(text) {
+  // Strategy 1: direct parse
+  try { return JSON.parse(text); } catch {}
+  // Strategy 2: code block extraction
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (match) try { return JSON.parse(match[1].trim()); } catch {}
+  // Strategy 3: find first { to last }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1) try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  return { raw: text, parsed: false };
+}
 
 export const analyzeFloorPlan = async (imageBase64, analysisType = 'full') => {
   const startTime = Date.now();
@@ -265,7 +297,7 @@ Return ONLY the JSON array, no other text.`;
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -294,19 +326,7 @@ Return ONLY the JSON array, no other text.`;
     const content = data.choices[0].message.content;
 
     // Try to parse JSON from the response
-    let suggestions;
-    try {
-      // Find JSON array in the response
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        suggestions = JSON.parse(jsonMatch[0]);
-      } else {
-        suggestions = JSON.parse(content);
-      }
-    } catch {
-      // If JSON parsing fails, return the raw content
-      suggestions = content;
-    }
+    const suggestions = parseJsonResponse(content);
 
     return {
       success: true,
@@ -379,7 +399,7 @@ Use markdown formatting with clear tables and sections.`;
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -407,23 +427,8 @@ Use markdown formatting with clear tables and sections.`;
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    // Parse JSON from response - look for ```json block first
-    let estimateData = null;
-    try {
-      // Try to find JSON in code block first
-      const codeBlockMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-      if (codeBlockMatch) {
-        estimateData = JSON.parse(codeBlockMatch[1]);
-      } else {
-        // Fallback: try to find standalone JSON object
-        const jsonMatch = content.match(/\{"labor_cost"[\s\S]*?\}/);
-        if (jsonMatch) {
-          estimateData = JSON.parse(jsonMatch[0]);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse estimate JSON:', e);
-    }
+    // Parse JSON from response using robust parser
+    const estimateData = parseJsonResponse(content);
 
     return {
       success: true,
@@ -492,7 +497,7 @@ Use markdown formatting with tables and clear sections.`;
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -520,21 +525,8 @@ Use markdown formatting with tables and clear sections.`;
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    // Parse JSON from response - look for ```json block first
-    let materials = [];
-    try {
-      const codeBlockMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-      if (codeBlockMatch) {
-        materials = JSON.parse(codeBlockMatch[1]);
-      } else {
-        const jsonMatch = content.match(/\[\s*\{[\s\S]*?\}\s*\]/);
-        if (jsonMatch) {
-          materials = JSON.parse(jsonMatch[0]);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse materials JSON:', e);
-    }
+    // Parse JSON from response using robust parser
+    const materials = parseJsonResponse(content);
 
     return {
       success: true,
@@ -644,7 +636,7 @@ The JSON MUST be the LAST thing in your response. Use exact field names: traffic
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -696,7 +688,7 @@ const callOpenRouterWithRetry = async (payload, maxRetries = 2) => {
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify(payload)
@@ -886,7 +878,7 @@ CRITICAL: End with this JSON:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -994,7 +986,7 @@ CRITICAL: End with this JSON:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -1114,7 +1106,7 @@ CRITICAL: End with this JSON:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -1238,7 +1230,7 @@ CRITICAL: End with this JSON:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -1395,7 +1387,7 @@ CRITICAL: End with this JSON:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:3000',
+        'HTTP-Referer': AI_REFERER,
         'X-Title': 'AI Floor Plan Analyzer'
       },
       body: JSON.stringify({
@@ -1431,6 +1423,217 @@ CRITICAL: End with this JSON:
   }
 };
 
+// AI Contractor Matcher - Ranks contractors by fit for a project
+export const matchContractors = async (contractors, costEstimates, jobType, budgetRange) => {
+  const startTime = Date.now();
+
+  const contractorSummary = contractors.map(c =>
+    `- ${c.name} (${c.specialty || 'General'}): Rating ${c.rating || 'N/A'}, ${c.location || 'Location unknown'}, ${c.license_number ? 'Licensed' : 'Unlicensed'}`
+  ).join('\n');
+
+  const estimateSummary = costEstimates.length > 0
+    ? costEstimates.map(e => `- ${e.title || 'Estimate'}: $${e.total_cost || 0} (Labor: $${e.labor_cost || 0}, Materials: $${e.material_cost || 0})`).join('\n')
+    : 'No existing cost estimates available';
+
+  const prompt = `Given these contractor specializations and cost estimates, rank contractors by fit for this project.
+
+## Project Details
+- Job Type: ${jobType}
+- Budget Range: ${budgetRange}
+
+## Available Contractors
+${contractorSummary}
+
+## Existing Cost Estimates
+${estimateSummary}
+
+Return a ranked list with fit score (1-100), rationale, and red flags for each contractor. Format as JSON:
+\`\`\`json
+{
+  "ranked_contractors": [
+    {"name": "Contractor Name", "fit_score": 85, "rationale": "...", "red_flags": ["..."], "recommended": true}
+  ],
+  "recommendation_summary": "Overall recommendation..."
+}
+\`\`\``;
+
+  try {
+    const data = await callOpenRouterWithRetry({
+      model: OPENROUTER_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert construction project manager who evaluates contractors for renovation projects. Provide objective, data-driven rankings.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 4000,
+      temperature: 0.5
+    });
+
+    const content = data.choices[0].message.content;
+    return {
+      success: true,
+      analysis: content,
+      parsed: parseJsonResponse(content),
+      model: data.model,
+      usage: data.usage,
+      processingTimeMs: Date.now() - startTime
+    };
+  } catch (error) {
+    console.error('Contractor matcher AI error:', error);
+    return { success: false, error: error.message, processingTimeMs: Date.now() - startTime };
+  }
+};
+
+// AI Portfolio Analyzer - Compares multiple properties
+export const analyzePortfolio = async (floorPlans) => {
+  const startTime = Date.now();
+
+  const propertySummaries = floorPlans.map((fp, i) =>
+    `### Property ${i + 1}: ${fp.name}
+- Total Area: ${fp.total_area || 'Unknown'} sq ft
+- Rooms: ${fp.rooms?.length || 0} (${fp.rooms?.map(r => r.room_type || r.name).join(', ') || 'none'})
+- Existing analyses: ${fp.analyses?.length || 0}`
+  ).join('\n\n');
+
+  const prompt = `Compare these ${floorPlans.length} properties and provide a portfolio analysis.
+
+${propertySummaries}
+
+Rank each property by:
+1. Renovation ROI potential
+2. Maintenance risk
+3. Energy efficiency improvement potential
+
+Provide a portfolio summary and strategic recommendations. Format response as JSON:
+\`\`\`json
+{
+  "portfolio_summary": "...",
+  "properties": [
+    {
+      "name": "Property Name",
+      "roi_potential_rank": 1,
+      "maintenance_risk_rank": 2,
+      "energy_efficiency_rank": 1,
+      "roi_score": 85,
+      "maintenance_risk_score": 30,
+      "energy_score": 70,
+      "key_opportunities": ["...", "..."],
+      "key_risks": ["..."]
+    }
+  ],
+  "strategic_recommendations": ["...", "..."],
+  "best_investment": "Property Name"
+}
+\`\`\``;
+
+  try {
+    const data = await callOpenRouterWithRetry({
+      model: OPENROUTER_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a real estate investment analyst specializing in renovation ROI, property maintenance, and energy efficiency. Provide data-driven portfolio analysis.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 6000,
+      temperature: 0.5
+    });
+
+    const content = data.choices[0].message.content;
+    return {
+      success: true,
+      analysis: content,
+      parsed: parseJsonResponse(content),
+      model: data.model,
+      usage: data.usage,
+      processingTimeMs: Date.now() - startTime
+    };
+  } catch (error) {
+    console.error('Portfolio analyzer AI error:', error);
+    return { success: false, error: error.message, processingTimeMs: Date.now() - startTime };
+  }
+};
+
+// Comparable Property Analyzer — cross-references floor plan analysis with local real estate context
+export const analyzeComparableProperty = async (floorPlanAnalysis, propertyAddress, renovationData = null) => {
+  const payload = {
+    model: OPENROUTER_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: `You are a real estate investment analyst with expertise in renovation ROI and comparable market analysis.
+
+Analyze this property's renovation potential compared to local real estate comps and estimate the market ROI.
+
+Property Address: ${propertyAddress}
+
+Floor Plan Analysis Summary:
+${JSON.stringify(floorPlanAnalysis, null, 2)}
+
+Renovation Data (if available):
+${renovationData ? JSON.stringify(renovationData, null, 2) : 'No renovation data provided'}
+
+Based on typical comparable sales data for this type of property and the floor plan characteristics, provide:
+
+Return JSON in this exact format:
+{
+  "property_assessment": {
+    "estimated_square_footage": number_or_null,
+    "property_type": "single-family/condo/townhouse/multi-family",
+    "layout_quality_score": 1-10,
+    "renovation_appeal": "low/medium/high"
+  },
+  "market_roi_estimate": {
+    "renovation_cost_estimate": "$range",
+    "estimated_value_increase": "$range",
+    "roi_percentage": "X-Y%",
+    "payback_period_months": number,
+    "confidence_level": "low/medium/high"
+  },
+  "comparable_insights": [
+    {
+      "factor": "comparable factor name",
+      "impact": "positive/negative/neutral",
+      "detail": "explanation"
+    }
+  ],
+  "top_value_adding_renovations": [
+    {
+      "renovation": "name",
+      "cost_estimate": "$X,000-$Y,000",
+      "value_add": "$X,000-$Y,000",
+      "roi": "X%"
+    }
+  ],
+  "market_positioning": "2-3 sentence summary of how this property competes in its market",
+  "investment_recommendation": "buy-and-renovate/sell-as-is/rent/hold",
+  "caveats": ["important disclaimer 1", "get professional appraisal disclaimer"]
+}`
+      }
+    ],
+    max_tokens: 2000,
+    temperature: 0.4,
+  };
+
+  try {
+    const result = await callOpenRouterWithRetry(payload);
+    if (result.error) return result;
+    const parsed = parseJsonResponse(result.analysis);
+    return {
+      success: true,
+      model: result.model,
+      property_address: propertyAddress,
+      analysis: parsed,
+      generated_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    return { error: err.message, success: false };
+  }
+};
+
 export default {
   analyzeFloorPlan,
   generateRenovationSuggestions,
@@ -1442,5 +1645,8 @@ export default {
   placeFurniture,
   predictMaintenance,
   auditEnergyEfficiency,
-  generateHomeInspection
+  generateHomeInspection,
+  matchContractors,
+  analyzePortfolio,
+  analyzeComparableProperty,
 };

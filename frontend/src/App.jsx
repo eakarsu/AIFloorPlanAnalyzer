@@ -24,9 +24,16 @@ import FurniturePlacer from './pages/FurniturePlacer';
 import MaintenancePredictor from './pages/MaintenancePredictor';
 import EnergyAuditor from './pages/EnergyAuditor';
 import HomeInspector from './pages/HomeInspector';
+import AccessibilityChecker from './pages/AccessibilityChecker';
+import SustainabilityAnalyzer from './pages/SustainabilityAnalyzer';
+import ContractorBidComparison from './pages/ContractorBidComparison';
+import AdvancedAITools from './pages/AdvancedAITools';
 import Layout from './components/Layout';
 import { ToastProvider } from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
+
+import Batch03Features from './pages/Batch03Features';
+import CustomViewsPage from './pages/CustomViewsPage';
 
 // Auth Context
 export const AuthContext = createContext(null);
@@ -72,6 +79,7 @@ function App() {
       <ToastProvider>
         <Router>
           <Routes>
+          <Route path="/batch03" element={<Batch03Features />} />
             <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
             <Route
               path="/"
@@ -164,6 +172,26 @@ function App() {
             <Route
               path="/home-inspector"
               element={user ? <Layout><HomeInspector /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/accessibility-checker"
+              element={user ? <Layout><AccessibilityChecker /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/sustainability-analyzer"
+              element={user ? <Layout><SustainabilityAnalyzer /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/contractor-bid-comparison"
+              element={user ? <Layout><ContractorBidComparison /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/advanced-ai-tools"
+              element={user ? <Layout><AdvancedAITools /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/custom-views"
+              element={user ? <Layout><CustomViewsPage /></Layout> : <Navigate to="/login" />}
             />
           </Routes>
         </Router>

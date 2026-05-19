@@ -146,6 +146,22 @@ export const inspectHome = (data) => api.post('/ai/home-inspection', data);
 export const getHomeInspections = () => api.get('/home-inspections');
 export const deleteHomeInspection = (id) => api.delete(`/home-inspections/${id}`);
 
+// AI Accessibility Checker
+export const checkAccessibility = (data) => api.post('/ai/accessibility-check', data);
+
+// AI Sustainability / Carbon Footprint
+export const analyzeSustainability = (data) => api.post('/ai/sustainability-analysis', data);
+
+// AI Contractor Bid Comparison
+export const compareContractorBids = (data) => api.post('/ai/contractor-bid-comparison', data);
+
+// AI Apply pass 5 — additive endpoints
+export const generateSpacePlan = (data) => api.post('/ai/space-plan', data);
+export const checkZoningCompliance = (data) => api.post('/ai/zoning-compliance', data);
+export const buildRenovationRoadmap = (data) => api.post('/ai/renovation-roadmap', data);
+export const reviewInsuranceRisk = (data) => api.post('/ai/insurance-risk-review', data);
+export const projectResaleValue = (data) => api.post('/ai/resale-value-projection', data);
+
 // Bulk Operations
 export const bulkDelete = (resource, ids) => api.post('/bulk/delete', { resource, ids });
 export const bulkUpdate = (resource, ids, updates) => api.post('/bulk/update', { resource, ids, updates });

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import sharp from 'sharp';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import pool, { initDB } from './db.js';
 import openrouterService, { assertOpenRouterConfigured } from './services/openrouter.js';
 
@@ -83,7 +83,7 @@ const aiRateLimiter = rateLimit({
         if (decoded && decoded.id) return `user:${decoded.id}`;
       } catch (_) { /* fall through to ip */ }
     }
-    return req.ip;
+    return ipKeyGenerator(req.ip);
   }
 });
 app.use('/api/', generalLimiter);
@@ -3481,6 +3481,7 @@ app.use('/api/sustainability-analysis', (await import('./routes/sustainabilityAn
 app.use('/api/financing-options', (await import('./routes/financingOptions.js')).default);
 app.use('/api/contractor-marketplace', (await import('./routes/contractorMarketplace.js')).default);
 app.use('/api/project-timeline', (await import('./routes/projectTimeline.js')).default);
+app.use('/api/custom-views', (await import('./routes/customViews.js')).default);
 
 // Health check
 app.get('/api/health', (req, res) => {

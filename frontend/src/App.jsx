@@ -33,6 +33,7 @@ import { ToastProvider } from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
 
 import Batch03Features from './pages/Batch03Features';
+import CustomViewsPage from './pages/CustomViewsPage';
 
 // Auth Context
 export const AuthContext = createContext(null);
@@ -187,6 +188,10 @@ function App() {
             <Route
               path="/advanced-ai-tools"
               element={user ? <Layout><AdvancedAITools /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/custom-views"
+              element={user ? <Layout><CustomViewsPage /></Layout> : <Navigate to="/login" />}
             />
           </Routes>
         </Router>

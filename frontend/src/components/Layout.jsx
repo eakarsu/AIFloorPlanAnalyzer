@@ -4,7 +4,7 @@ import { useAuth } from '../App';
 import {
   Home, FileImage, Square, Lightbulb, Package, Calculator,
   Palette, Users, Brain, Menu, X, LogOut, User, ChevronDown, Settings,
-  BarChart3, Maximize, DollarSign, Sparkles, ScanSearch, Sofa, Wrench, Zap, ClipboardCheck, Accessibility, Leaf, Scale
+  BarChart3, Maximize, DollarSign, Sparkles, ScanSearch, Sofa, Wrench, Zap, ClipboardCheck, Accessibility, Leaf, Scale, LayoutGrid
 } from 'lucide-react';
 import { logout as logoutApi } from '../services/api';
 
@@ -36,6 +36,8 @@ const menuItems = [
   { path: '/sustainability-analyzer', icon: Leaf, label: 'Sustainability' },
   { path: '/contractor-bid-comparison', icon: Scale, label: 'Bid Comparison' },
   { path: '/advanced-ai-tools', icon: Sparkles, label: 'Advanced AI Tools' },
+  { type: 'divider', label: 'Custom Views' },
+  { path: '/custom-views', icon: LayoutGrid, label: 'Floor Views' },
 ];
 
 export default function Layout({ children }) {

@@ -38,6 +38,7 @@ const menuItems = [
   { path: '/advanced-ai-tools', icon: Sparkles, label: 'Advanced AI Tools' },
   { type: 'divider', label: 'Custom Views' },
   { path: '/custom-views', icon: LayoutGrid, label: 'Floor Views' },
+  { path: '/egress-path-clearance', icon: Accessibility, label: 'Egress Clearance' },
 ];
 
 export default function Layout({ children }) {

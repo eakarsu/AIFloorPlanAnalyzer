@@ -34,6 +34,12 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 import Batch03Features from './pages/Batch03Features';
 import CustomViewsPage from './pages/CustomViewsPage';
+import EgressPathClearance from './pages/EgressPathClearance';
+
+import CodexCustomVizFeature from './pages/CodexCustomVizFeature';
+import CodexOperationsFeature from './pages/CodexOperationsFeature';
+
+import TimelineView from './pages/TimelineView';
 
 // Auth Context
 export const AuthContext = createContext(null);
@@ -79,6 +85,10 @@ function App() {
       <ToastProvider>
         <Router>
           <Routes>
+        <Route path="/insights/timeline" element={<TimelineView />} />
+        <Route path="/codex/custom-viz" element={<CodexCustomVizFeature />} />
+        <Route path="/codex/operations" element={<CodexOperationsFeature />} />
+
           <Route path="/batch03" element={<Batch03Features />} />
             <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
             <Route
@@ -192,6 +202,10 @@ function App() {
             <Route
               path="/custom-views"
               element={user ? <Layout><CustomViewsPage /></Layout> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/egress-path-clearance"
+              element={user ? <Layout><EgressPathClearance /></Layout> : <Navigate to="/login" />}
             />
           </Routes>
         </Router>

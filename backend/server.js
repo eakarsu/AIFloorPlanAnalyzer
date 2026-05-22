@@ -3483,6 +3483,37 @@ app.use('/api/contractor-marketplace', (await import('./routes/contractorMarketp
 app.use('/api/project-timeline', (await import('./routes/projectTimeline.js')).default);
 app.use('/api/custom-views', (await import('./routes/customViews.js')).default);
 
+let egressPathClearance = [
+  { id: 1, floor: 'Level 1', route: 'Lobby to west stair', requiredWidthIn: 44, observedWidthIn: 38, obstruction: 'Temporary material cart', owner: 'GC field lead', status: 'blocked' },
+  { id: 2, floor: 'Level 2', route: 'Open office to north stair', requiredWidthIn: 44, observedWidthIn: 48, obstruction: 'None', owner: 'Safety manager', status: 'clear' },
+  { id: 3, floor: 'Basement', route: 'Mechanical room to exit ramp', requiredWidthIn: 36, observedWidthIn: 34, obstruction: 'Stored conduit bundle', owner: 'Electrical foreman', status: 'needs review' }
+];
+
+app.get('/api/egress-path-clearance', authenticateToken, (req, res) => {
+  const summary = egressPathClearance.reduce((acc, row) => {
+    acc.total += 1;
+    acc.blocked += row.status === 'blocked' ? 1 : 0;
+    acc.narrow += Number(row.observedWidthIn) < Number(row.requiredWidthIn) ? 1 : 0;
+    return acc;
+  }, { total: 0, blocked: 0, narrow: 0 });
+  res.json({ rows: egressPathClearance, summary });
+});
+
+app.post('/api/egress-path-clearance', authenticateToken, (req, res) => {
+  const item = {
+    id: Date.now(),
+    floor: req.body.floor || 'Unassigned floor',
+    route: req.body.route || 'Unmapped egress route',
+    requiredWidthIn: Number(req.body.requiredWidthIn || 44),
+    observedWidthIn: Number(req.body.observedWidthIn || 0),
+    obstruction: req.body.obstruction || 'Pending field walk',
+    owner: req.body.owner || 'Life safety lead',
+    status: req.body.status || 'needs review'
+  };
+  egressPathClearance = [item, ...egressPathClearance];
+  res.status(201).json(item);
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

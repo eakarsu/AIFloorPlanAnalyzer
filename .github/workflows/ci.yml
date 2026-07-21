@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app_test
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      OPENROUTER_API_KEY: ci-placeholder-not-used
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: cd backend && npm ci
+      - run: cd frontend && npm ci
+      - run: ./scripts/migrate.sh
+      - run: cd backend && npm test
+      - run: cd frontend && npm run build

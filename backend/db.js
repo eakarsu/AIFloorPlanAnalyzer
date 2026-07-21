@@ -10,13 +10,8 @@ dotenv.config({ path: join(__dirname, '..', '.env') });
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'floorplan_db',
-  user: process.env.DB_USER || 'floorplan_user',
-  password: process.env.DB_PASSWORD || 'floorplan_pass',
-});
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export const initDB = async () => {
   const client = await pool.connect();

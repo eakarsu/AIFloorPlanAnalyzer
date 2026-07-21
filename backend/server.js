@@ -10,8 +10,9 @@ import { dirname, join } from 'path';
 import sharp from 'sharp';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import pool, { initDB } from './db.js';
+import pool from './db.js';
 import openrouterService, { assertOpenRouterConfigured } from './services/openrouter.js';
+import governedDesigns from './routes/governedDesigns.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,13 +25,8 @@ const PORT = process.env.BACKEND_PORT || 3001;
 // Resolve secrets at boot. In production we hard-fail; in dev we still allow a
 // long random-but-known dev secret so contributors aren't blocked.
 function resolveJwtSecret() {
-  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length > 0) return process.env.JWT_SECRET;
-  if (process.env.NODE_ENV === 'production') {
-    // eslint-disable-next-line no-console
-    console.error('JWT_SECRET must be set in production. Refusing to start.');
-    process.exit(1);
-  }
-  return 'dev-only-insecure-secret-do-not-use-in-prod';
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 32) return process.env.JWT_SECRET;
+  throw new Error('JWT_SECRET must be configured with at least 32 characters');
 }
 const JWT_SECRET = resolveJwtSecret();
 
@@ -195,8 +191,7 @@ const requireRole = (...roles) => {
   };
 };
 
-// Initialize database on startup
-initDB().catch(console.error);
+// Schema changes are intentionally out-of-band; use scripts/migrate.sh.
 
 // ============ AUTH ROUTES ============
 
@@ -218,12 +213,12 @@ app.post('/api/auth/register', async (req, res) => {
       [email, hashedPassword, name, 'user', false, verificationToken]
     );
 
-    const token = jwt.sign({ id: result.rows[0].id, email }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: result.rows[0].id, email, role: result.rows[0].role }, JWT_SECRET, { expiresIn: '24h' });
 
     res.json({
       user: result.rows[0],
       token,
-      verificationToken,
+      ...(process.env.EXPOSE_DEMO_TOKENS === 'true' && process.env.NODE_ENV !== 'production' ? { verificationToken } : {}),
       message: 'Registration successful. Please verify your email.'
     });
   } catch (error) {
@@ -251,7 +246,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '24h' });
 
     res.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role || 'user', email_verified: user.email_verified },
@@ -3519,6 +3514,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/api/governed-designs', governedDesigns({ pool, authenticate: authenticateToken }));
+
 // ============ GLOBAL ERROR HANDLER ============
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -3535,13 +3532,6 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-
-// === Batch 03 Gaps & Frontend Mounts ===
-try {
-  const _batch03 = require('./routes/batch03Gaps');
-  if (typeof authenticateToken === 'function') app.use('/api', authenticateToken, _batch03);
-  else app.use('/api', _batch03);
-} catch (_e) { /* batch03 gap routes optional */ }
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

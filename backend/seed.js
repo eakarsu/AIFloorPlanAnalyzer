@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
+if (process.env.CONFIRM_DEMO_SEED !== 'yes') {
+  throw new Error('Destructive demo seed refused; use scripts/seed-demo.sh with CONFIRM_DEMO_SEED=yes');
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 

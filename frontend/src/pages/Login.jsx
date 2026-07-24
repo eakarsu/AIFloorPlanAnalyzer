@@ -113,8 +113,8 @@ export default function Login() {
   };
 
   const fillDemoCredentials = () => {
-    setEmail('demo@example.com');
-    setPassword('password123');
+    setEmail(import.meta.env.VITE_DEMO_EMAIL || '');
+    setPassword(import.meta.env.VITE_DEMO_PASSWORD || '');
     setName('Demo User');
   };
 

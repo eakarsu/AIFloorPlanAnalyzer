@@ -13,6 +13,12 @@ const __dirname = dirname(__filename);
 
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
+function requireDemoPassword() {
+  const password = process.env.DEMO_PASSWORD || process.env.SEED_DEMO_PASSWORD || process.env.DEMO_SEED_PASSWORD || '';
+  if (password.length < 12 || password.length > 1024) throw new Error('DEMO_PASSWORD must contain 12-1024 characters');
+  return password;
+}
+
 const seedData = async () => {
   const client = await pool.connect();
 
@@ -25,7 +31,7 @@ const seedData = async () => {
 
     console.log('Seeding users...');
     // Seed Users (15+ items)
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const hashedPassword = await bcrypt.hash(requireDemoPassword(), 10);
     const users = [
       { email: 'demo@example.com', password: hashedPassword, name: 'Demo User', role: 'admin', email_verified: true },
       { email: 'john@example.com', password: hashedPassword, name: 'John Smith', role: 'user', email_verified: true },
@@ -430,7 +436,7 @@ const seedData = async () => {
     }
 
     console.log('Database seeded successfully!');
-    console.log('Demo login: demo@example.com / password123');
+    console.log('Demo login users provisioned from the local environment.');
 
   } catch (error) {
     console.error('Error seeding database:', error);

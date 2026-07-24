@@ -3264,7 +3264,8 @@ function _parseLooseJson(raw) {
 async function _callOpenRouter({ system, user, temperature = 0.3 }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return { missingKey: true };
-  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const baseUrl = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+  const r = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -3295,12 +3296,12 @@ async function _callOpenRouter({ system, user, temperature = 0.3 }) {
 app.post('/api/ai/space-plan', authenticateToken, async (req, res) => {
   try {
     const { floor_plan_id, household_size, lifestyle, priorities, budget } = req.body || {};
-    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fpQ = await pool.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
     const fp = fpQ.rows?.[0];
     if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
     const out = await _callOpenRouter({
       system: 'You are a residential space planner. Return strict JSON only.',
-      user: `Plan space allocation for floor plan "${fp.name}" (${fp.total_sqft} sqft).
+      user: `Plan space allocation for floor plan "${fp.name}" (${fp.total_area} sqft).
 Household: ${household_size || 2}
 Lifestyle: ${lifestyle || 'modern professional'}
 Priorities: ${Array.isArray(priorities) ? priorities.join(', ') : (priorities || 'comfort, productivity')}
@@ -3331,7 +3332,7 @@ Return ONLY JSON:
 app.post('/api/ai/zoning-compliance', authenticateToken, async (req, res) => {
   try {
     const { floor_plan_id, jurisdiction, lot_size_sqft, intended_use } = req.body || {};
-    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fpQ = await pool.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
     const fp = fpQ.rows?.[0];
     if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
     const out = await _callOpenRouter({
@@ -3365,7 +3366,7 @@ Return ONLY JSON:
 app.post('/api/ai/renovation-roadmap', authenticateToken, async (req, res) => {
   try {
     const { floor_plan_id, total_budget, timeline_months, must_haves, nice_to_haves } = req.body || {};
-    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fpQ = await pool.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
     const fp = fpQ.rows?.[0];
     if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
     const out = await _callOpenRouter({
@@ -3406,7 +3407,7 @@ Return ONLY JSON:
 app.post('/api/ai/insurance-risk-review', authenticateToken, async (req, res) => {
   try {
     const { floor_plan_id, year_built, prior_claims, location_hazards } = req.body || {};
-    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fpQ = await pool.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
     const fp = fpQ.rows?.[0];
     if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
     const out = await _callOpenRouter({
@@ -3440,7 +3441,7 @@ Return ONLY JSON:
 app.post('/api/ai/resale-value-projection', authenticateToken, async (req, res) => {
   try {
     const { floor_plan_id, market_tier, proposed_changes, current_estimate } = req.body || {};
-    const fpQ = await db.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
+    const fpQ = await pool.query('SELECT * FROM floor_plans WHERE id = $1', [floor_plan_id]);
     const fp = fpQ.rows?.[0];
     if (!fp) return res.status(404).json({ error: 'Floor plan not found' });
     const out = await _callOpenRouter({

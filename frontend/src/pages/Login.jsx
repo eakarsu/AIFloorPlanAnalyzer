@@ -224,7 +224,7 @@ export default function Login() {
                 onClick={fillDemoCredentials}
                 className="w-full mb-6 py-3 px-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white font-medium rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                Fill Demo Credentials
+                Auto Fill Demo Credentials
               </button>
 
               {error && (

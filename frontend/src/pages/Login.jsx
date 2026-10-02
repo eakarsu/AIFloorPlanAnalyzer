@@ -4,6 +4,47 @@ import { useAuth } from '../App';
 import { login as loginApi, register as registerApi, requestPasswordReset } from '../services/api';
 import { Brain, Mail, Lock, User, Loader2, ArrowLeft, Check, X } from 'lucide-react';
 
+function __demoAutofill() {
+  (async () => {
+    let email = "";
+    let password = "";
+    try {
+      const response = await fetch("/api/auth/demo-credentials", { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        email = data.email || data.username || "";
+        password = data.password || "";
+      }
+    } catch (error) {
+      /* fall back to build-time credentials below */
+    }
+    if (!email || !password) {
+      const env = (typeof process !== "undefined" && process.env) ? process.env : {};
+      email = email || env.REACT_APP_DEMO_EMAIL || env.VITE_DEMO_EMAIL || "";
+      password = password || env.REACT_APP_DEMO_PASSWORD || env.VITE_DEMO_PASSWORD || "";
+    }
+    const form = document.querySelector("form");
+    const setValue = (element, value) => {
+      if (!element) return;
+      const prototype = element.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
+      setter.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const scope = form || document;
+    setValue(scope.querySelector('input[type="email"], input[name="email"], input[name="username"]') || scope.querySelectorAll("input")[0], email);
+    setValue(scope.querySelector('input[type="password"], input[name="password"]') || scope.querySelectorAll("input")[1], password);
+    window.setTimeout(() => {
+      if (form && typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        const submit = scope.querySelector('button[type="submit"], input[type="submit"]');
+        if (submit) submit.click();
+      }
+    }, 50);
+  })();
+}
+
 const passwordRules = [
   { label: 'At least 8 characters', test: (p) => p.length >= 8 },
   { label: 'Uppercase letter', test: (p) => /[A-Z]/.test(p) },
@@ -221,7 +262,7 @@ export default function Login() {
               {/* Demo credentials button */}
               <button
                 type="button"
-                onClick={fillDemoCredentials}
+                onClick={__demoAutofill}
                 className="w-full mb-6 py-3 px-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white font-medium rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all duration-200 shadow-md hover:shadow-lg"
               >
                 Auto Fill Demo Credentials

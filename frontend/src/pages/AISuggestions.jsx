@@ -1,3 +1,4 @@
+import AIPresetButtons from '../components/AIPresetButtons';
 import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { getAISuggestions, deleteAISuggestion, analyzeFloorPlan, getFloorPlans } from '../services/api';
@@ -25,7 +26,7 @@ export default function AISuggestions() {
     try {
       const [res, fpRes] = await Promise.all([getAISuggestions(), getFloorPlans()]);
       setSuggestions(res.data);
-      setFloorPlans(fpRes.data);
+      setFloorPlans(Array.isArray(fpRes.data?.data) ? fpRes.data.data : []);
     } catch (error) { console.error('Error fetching data:', error); }
     finally { setLoading(false); }
   };
@@ -87,6 +88,9 @@ export default function AISuggestions() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <AIPresetButtons examples={[{ label: 'Existing plan A' }, { label: 'Existing plan B' }, { label: 'Existing plan C' }]} onFill={(_, index) => {
+          if (!selectedFloorPlan && !imageData && floorPlans.length) setSelectedFloorPlan(String(floorPlans[index % floorPlans.length].id));
+        }} prerequisite={!selectedFloorPlan && !imageData && !floorPlans.length ? 'Select an existing floor plan or upload a real image; no source is available to fill.' : 'The selected floor plan or uploaded image is preserved. Generation is a separate action.'} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Choose Existing</label>

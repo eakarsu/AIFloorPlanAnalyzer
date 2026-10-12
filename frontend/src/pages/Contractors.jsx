@@ -22,7 +22,7 @@ const sortOptions = [
 
 export default function Contractors() {
   const [contractors, setContractors] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 12, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
@@ -94,7 +94,7 @@ export default function Contractors() {
     try {
       const params = {
         page,
-        limit: 12,
+        limit: 20,
         sort_by: sortBy,
         sort_order: sortOrder,
       };
@@ -102,7 +102,7 @@ export default function Contractors() {
       if (filterSpecialty) params.specialty = filterSpecialty;
 
       const res = await getContractors(params);
-      setContractors(res.data.data);
+      setContractors(Array.isArray(res.data?.data) ? res.data.data : []);
       setPagination(res.data.pagination);
       // Clear selections that are no longer visible
       setSelectedIds(new Set());

@@ -3478,6 +3478,8 @@ app.use('/api/financing-options', (await import('./routes/financingOptions.js'))
 app.use('/api/contractor-marketplace', (await import('./routes/contractorMarketplace.js')).default);
 app.use('/api/project-timeline', (await import('./routes/projectTimeline.js')).default);
 app.use('/api/custom-views', (await import('./routes/customViews.js')).default);
+// Gap-feature AI endpoints (POST /api/gap-*) — mounted before the 404 catch-all so they are reachable.
+app.use('/api', (await import('./routes/batch03Gaps.js')).default);
 
 let egressPathClearance = [
   { id: 1, floor: 'Level 1', route: 'Lobby to west stair', requiredWidthIn: 44, observedWidthIn: 38, obstruction: 'Temporary material cart', owner: 'GC field lead', status: 'blocked' },

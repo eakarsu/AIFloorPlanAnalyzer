@@ -34,7 +34,7 @@ export default function Suggestions() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [saving, setSaving] = useState(false);
-  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -95,7 +95,7 @@ export default function Suggestions() {
       if (filterRoomId) params.room_id = filterRoomId;
 
       const res = await getSuggestions(params);
-      setSuggestions(res.data.data);
+      setSuggestions(Array.isArray(res.data?.data) ? res.data.data : []);
       setPagination(res.data.pagination);
       // Clear selections when data changes
       setSelectedIds([]);
@@ -113,8 +113,8 @@ export default function Suggestions() {
         getFloorPlans({ limit: 100 }),
         getRooms({ limit: 100 }),
       ]);
-      setFloorPlans(fpRes.data.data);
-      setRooms(rRes.data.data);
+      setFloorPlans(Array.isArray(fpRes.data?.data) ? fpRes.data.data : []);
+      setRooms(Array.isArray(rRes.data?.data) ? rRes.data.data : []);
     } catch (error) {
       console.error('Error fetching dropdown data:', error);
     }

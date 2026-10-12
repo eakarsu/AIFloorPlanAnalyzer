@@ -6,7 +6,8 @@ import { useDropzone } from 'react-dropzone';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
-import ReactMarkdown from 'react-markdown';
+import FormattedAIReport from '../components/FormattedAIReport';
+import AIPresetButtons from '../components/AIPresetButtons';
 
 export default function RoomDetector() {
   const [detections, setDetections] = useState([]);
@@ -32,7 +33,7 @@ export default function RoomDetector() {
         getFloorPlans()
       ]);
       setDetections(detectionsRes.data);
-      setFloorPlans(floorPlansRes.data);
+      setFloorPlans(Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -277,6 +278,9 @@ export default function RoomDetector() {
             )}
           </div>
 
+          <AIPresetButtons examples={[{ label: 'Existing plan A' }, { label: 'Existing plan B' }, { label: 'Existing plan C' }]} onFill={(_, index) => {
+            if (!selectedFloorPlan && !uploadedImage && floorPlans.length) setSelectedFloorPlan(String(floorPlans[index % floorPlans.length].id));
+          }} prerequisite={!selectedFloorPlan && !uploadedImage && !floorPlans.length ? 'Select an existing floor plan or upload a real image; no source is available to fill.' : 'The selected floor plan or uploaded image is preserved. Detection is a separate action.'} />
           <div className="flex justify-end gap-3 pt-4">
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button
@@ -330,7 +334,7 @@ export default function RoomDetector() {
             {showDetail.full_result && (
               <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
                 <div className="ai-response prose prose-sm max-w-none">
-                  <ReactMarkdown>{showDetail.full_result?.replace(/```[\w]*\n?[\s\S]*?```/g, '').trim()}</ReactMarkdown>
+                  <FormattedAIReport response={showDetail.full_result} />
                 </div>
               </div>
             )}

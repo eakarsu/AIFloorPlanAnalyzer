@@ -1,3 +1,5 @@
+import FormattedAIReport from "../components/FormattedAIReport";
+import AIPresetButtons from '../components/AIPresetButtons';
 import { useState, useEffect } from 'react';
 import {
   getFloorPlans,
@@ -52,6 +54,12 @@ const TOOLS = [
   ]},
 ];
 
+const scenarios = [
+  { label: 'Family renovation', values: { household_size: 4, lifestyle: 'Family with two school-age children', priorities: 'Storage, flexible living area, durable finishes', budget: '$45,000', jurisdiction: 'Verify local residential zoning', lot_size_sqft: 6500, intended_use: 'Single-family renovation', total_budget: 45000, timeline_months: 6, must_haves: 'Safe stairs, kitchen ventilation', nice_to_haves: 'Built-in storage', year_built: 1985, prior_claims: 'None reported; verify with owner', location_hazards: 'Review local flood and wind maps', market_tier: 'Mid-market', current_estimate: 420000, proposed_changes: 'Kitchen update, insulation' } },
+  { label: 'Compact retrofit', values: { household_size: 2, lifestyle: 'Work-from-home couple', priorities: 'Accessible circulation, daylight, energy savings', budget: '$28,000', jurisdiction: 'Verify local residential zoning', lot_size_sqft: 4200, intended_use: 'Interior retrofit', total_budget: 28000, timeline_months: 4, must_haves: 'Accessible entry, electrical review', nice_to_haves: 'Home office nook', year_built: 1972, prior_claims: 'Unknown; verify with owner', location_hazards: 'Review local weather exposure', market_tier: 'Entry-level', current_estimate: 310000, proposed_changes: 'Entry ramp, efficient HVAC' } },
+  { label: 'Long-term home', values: { household_size: 3, lifestyle: 'Multi-generation household', priorities: 'Ground-floor bedroom, quiet zones, efficient systems', budget: '$75,000', jurisdiction: 'Verify local residential zoning', lot_size_sqft: 8000, intended_use: 'Single-family addition', total_budget: 75000, timeline_months: 10, must_haves: 'Ground-floor bathroom, permit review', nice_to_haves: 'Covered patio', year_built: 1998, prior_claims: 'None reported; verify with owner', location_hazards: 'Check drainage and wildfire maps', market_tier: 'Upper mid-market', current_estimate: 580000, proposed_changes: 'Bathroom addition, heat pump' } },
+];
+
 function listFields(v) {
   if (typeof v !== 'string' || !v.trim()) return undefined;
   return v.split(',').map((s) => s.trim()).filter(Boolean);
@@ -72,7 +80,7 @@ export default function AdvancedAITools() {
     (async () => {
       try {
         const r = await getFloorPlans();
-        setFloorPlans(r.data || []);
+        setFloorPlans(Array.isArray(r.data?.data) ? r.data.data : []);
       } catch (_) {}
     })();
   }, []);
@@ -127,6 +135,7 @@ export default function AdvancedAITools() {
       </div>
 
       <form onSubmit={submit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+        <AIPresetButtons examples={scenarios} onFill={(scenario) => setForm(Object.fromEntries(tool.fields.map((field) => [field.key, scenario.values[field.key]])))} prerequisite={!floorPlanId ? 'Select an existing floor plan before running this analysis.' : null} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Floor Plan *</label>
           <select
@@ -187,9 +196,7 @@ export default function AdvancedAITools() {
       {result && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h3 className="font-semibold text-gray-800 mb-2">Result</h3>
-          <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded border max-h-[60vh]">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+          <FormattedAIReport response={result} />
         </div>
       )}
     </div>

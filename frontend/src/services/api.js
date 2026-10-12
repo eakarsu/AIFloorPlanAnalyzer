@@ -45,21 +45,21 @@ export const verifyEmail = (token) => api.post('/auth/verify-email', { token });
 export const resendVerification = () => api.post('/auth/resend-verification');
 
 // Floor Plans
-export const getFloorPlans = (params) => api.get('/floor-plans', { params });
+export const getFloorPlans = (params) => api.get('/floor-plans', { params: { limit: 100, ...params } });
 export const getFloorPlan = (id) => api.get(`/floor-plans/${id}`);
 export const createFloorPlan = (data) => api.post('/floor-plans', data);
 export const updateFloorPlan = (id, data) => api.put(`/floor-plans/${id}`, data);
 export const deleteFloorPlan = (id) => api.delete(`/floor-plans/${id}`);
 
 // Rooms
-export const getRooms = (params) => api.get('/rooms', { params });
+export const getRooms = (params) => api.get('/rooms', { params: { limit: 100, ...params } });
 export const getRoom = (id) => api.get(`/rooms/${id}`);
 export const createRoom = (data) => api.post('/rooms', data);
 export const updateRoom = (id, data) => api.put(`/rooms/${id}`, data);
 export const deleteRoom = (id) => api.delete(`/rooms/${id}`);
 
 // Suggestions
-export const getSuggestions = (params) => api.get('/suggestions', { params });
+export const getSuggestions = (params) => api.get('/suggestions', { params: { limit: 100, ...params } });
 export const getSuggestion = (id) => api.get(`/suggestions/${id}`);
 export const createSuggestion = (data) => api.post('/suggestions', data);
 export const updateSuggestion = (id, data) => api.put(`/suggestions/${id}`, data);

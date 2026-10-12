@@ -4,7 +4,8 @@ import { Zap, Trash2, Plus, Loader2, Eye, Leaf, DollarSign, TrendingDown, FlaskC
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
-import ReactMarkdown from 'react-markdown';
+import FormattedAIReport from '../components/FormattedAIReport';
+import AIPresetButtons from '../components/AIPresetButtons';
 
 const climateZones = [
   { value: 'hot-humid', label: 'Hot & Humid' },
@@ -42,7 +43,7 @@ export default function EnergyAuditor() {
         getFloorPlans()
       ]);
       setAudits(auditsRes.data);
-      setFloorPlans(floorPlansRes.data);
+      setFloorPlans(Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -250,6 +251,7 @@ export default function EnergyAuditor() {
             <p className="text-sm text-gray-500 mt-1">Helps provide accurate energy estimates</p>
           </div>
 
+          <AIPresetButtons examples={climateZones.slice(0, 3)} onFill={(scenario, index) => setFormData((previous) => ({ ...previous, climate_zone: scenario.value }))} prerequisite={!formData.floor_plan_id ? 'Select an existing floor plan before running this analysis.' : null} />
           <div className="flex justify-end gap-3 pt-4">
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button onClick={handleAnalyze} disabled={analyzing || !formData.floor_plan_id} className="btn-primary flex items-center gap-2">
@@ -310,7 +312,7 @@ export default function EnergyAuditor() {
             {showDetail.full_result && (
               <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
                 <div className="ai-response prose prose-sm max-w-none">
-                  <ReactMarkdown>{showDetail.full_result?.replace(/```[\w]*\n?[\s\S]*?```/g, '').trim()}</ReactMarkdown>
+                  <FormattedAIReport response={showDetail.full_result} />
                 </div>
               </div>
             )}

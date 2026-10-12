@@ -139,8 +139,8 @@ export default function Dashboard() {
         getSuggestions()
       ]);
       setStats(statsRes.data);
-      setRecentFloorPlans(floorPlansRes.data.slice(0, 5));
-      setRecentSuggestions(suggestionsRes.data.slice(0, 5));
+      setRecentFloorPlans((Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []).slice(0, 5));
+      setRecentSuggestions((Array.isArray(suggestionsRes.data?.data) ? suggestionsRes.data.data : []).slice(0, 5));
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {

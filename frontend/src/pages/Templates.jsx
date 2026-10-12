@@ -74,7 +74,7 @@ export default function Templates() {
       setLoading(true);
       const params = {
         page: currentPage,
-        limit: 12,
+        limit: 20,
         sort_by: sortBy,
         sort_order: sortOrder,
       };
@@ -82,7 +82,7 @@ export default function Templates() {
       if (filterStyle) params.style = filterStyle;
 
       const res = await getTemplates(params);
-      setTemplates(res.data.data);
+      setTemplates(Array.isArray(res.data?.data) ? res.data.data : []);
       setPagination(res.data.pagination);
     } catch (error) {
       console.error('Error fetching templates:', error);

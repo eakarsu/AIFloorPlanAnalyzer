@@ -4,7 +4,8 @@ import { Wrench, Trash2, Plus, Loader2, Eye, Calendar, AlertTriangle, DollarSign
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
-import ReactMarkdown from 'react-markdown';
+import FormattedAIReport from '../components/FormattedAIReport';
+import AIPresetButtons from '../components/AIPresetButtons';
 
 export default function MaintenancePredictor() {
   const [predictions, setPredictions] = useState([]);
@@ -31,7 +32,7 @@ export default function MaintenancePredictor() {
         getFloorPlans()
       ]);
       setPredictions(predictionsRes.data);
-      setFloorPlans(floorPlansRes.data);
+      setFloorPlans(Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -214,6 +215,7 @@ export default function MaintenancePredictor() {
             <p className="text-sm text-gray-500 mt-1">Approximate age of the property</p>
           </div>
 
+          <AIPresetButtons examples={[{ label: 'Newer home', age: 5 }, { label: 'Established home', age: 25 }, { label: 'Older home', age: 60 }]} onFill={(scenario) => setFormData((previous) => ({ ...previous, home_age: scenario.age }))} prerequisite={!formData.floor_plan_id ? 'Select an existing floor plan before running this analysis.' : null} />
           <div className="flex justify-end gap-3 pt-4">
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button onClick={handleAnalyze} disabled={analyzing || !formData.floor_plan_id} className="btn-primary flex items-center gap-2">
@@ -267,7 +269,7 @@ export default function MaintenancePredictor() {
             {showDetail.full_result && (
               <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
                 <div className="ai-response prose prose-sm max-w-none">
-                  <ReactMarkdown>{showDetail.full_result?.replace(/```[\w]*\n?[\s\S]*?```/g, '').trim()}</ReactMarkdown>
+                  <FormattedAIReport response={showDetail.full_result} />
                 </div>
               </div>
             )}

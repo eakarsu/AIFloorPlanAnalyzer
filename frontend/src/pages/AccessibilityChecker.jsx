@@ -1,8 +1,9 @@
+import FormattedAIReport from "../components/FormattedAIReport";
+import AIPresetButtons from '../components/AIPresetButtons';
 import { useState, useEffect } from 'react';
 import { getFloorPlans, checkAccessibility } from '../services/api';
 import { Accessibility, Loader2, FlaskConical, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useToast } from '../components/Toast';
-import ReactMarkdown from 'react-markdown';
 
 /**
  * Frontend for `POST /api/ai/accessibility-check` (added in backend/server.js).
@@ -37,7 +38,7 @@ export default function AccessibilityChecker() {
   const fetchData = async () => {
     try {
       const fpRes = await getFloorPlans();
-      setFloorPlans(fpRes.data || []);
+      setFloorPlans(Array.isArray(fpRes.data?.data) ? fpRes.data.data : []);
     } catch (e) {
       // Non-fatal — user may type a floor_plan_id manually.
     } finally {
@@ -131,6 +132,11 @@ export default function AccessibilityChecker() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+        <AIPresetButtons examples={[
+          { label: 'Wheelchair circulation', audience: 'wheelchair', notes: 'Review door clearances, turning space, threshold heights, and reachable controls; verify dimensions on site.' },
+          { label: 'Aging in place', audience: 'aging-in-place', notes: 'Review step-free access, bathroom grab-bar backing, lighting, and slip resistance; verify conditions on site.' },
+          { label: 'Visual accessibility', audience: 'visual', notes: 'Review lighting, contrast, stair edge visibility, and wayfinding; verify conditions on site.' },
+        ]} onFill={(scenario) => setFormData((previous) => ({ ...previous, audience: scenario.audience, notes: scenario.notes }))} prerequisite={!formData.floor_plan_id ? 'Select an existing floor plan before running this analysis.' : null} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Floor Plan *</label>
@@ -223,7 +229,7 @@ export default function AccessibilityChecker() {
                       <span className="font-medium">{f.room || `Finding ${i + 1}`}</span>
                       <span className="text-xs uppercase tracking-wide font-semibold">{f.severity || 'info'}</span>
                     </div>
-                    <p className="text-sm mt-1">{f.issue || f.description || JSON.stringify(f)}</p>
+                    <div className="text-sm mt-1">{f.issue ?? f.description ?? <FormattedAIReport response={f} title="Finding" />}</div>
                   </div>
                 ))}
               </div>
@@ -238,7 +244,7 @@ export default function AccessibilityChecker() {
                   <div key={i} className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 flex items-center justify-between gap-3">
-                      <span className="text-sm text-emerald-800">{m.item || m.description || JSON.stringify(m)}</span>
+                      <div className="text-sm text-emerald-800">{m.item ?? m.description ?? <FormattedAIReport response={m} title="Modification" />}</div>
                       {m.estimated_cost_usd != null && (
                         <span className="text-sm font-semibold text-emerald-700 whitespace-nowrap">
                           ${m.estimated_cost_usd.toLocaleString()}
@@ -262,14 +268,14 @@ export default function AccessibilityChecker() {
             <details className="border rounded-lg p-4">
               <summary className="cursor-pointer font-medium text-gray-800">Full report</summary>
               <div className="ai-response prose prose-sm max-w-none mt-3">
-                <ReactMarkdown>{String(result.full_result).replace(/```[\w]*\n?[\s\S]*?```/g, '').trim()}</ReactMarkdown>
+                <FormattedAIReport response={result.full_result} />
               </div>
             </details>
           )}
 
           <details className="border rounded-lg p-4">
             <summary className="cursor-pointer text-sm text-gray-500">Raw JSON</summary>
-            <pre className="text-xs mt-2 overflow-auto bg-gray-50 p-3 rounded">{JSON.stringify(result, null, 2)}</pre>
+            <FormattedAIReport response={result} />
           </details>
         </div>
       )}

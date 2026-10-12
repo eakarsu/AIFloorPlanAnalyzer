@@ -4,7 +4,8 @@ import { Sofa, Trash2, Plus, Loader2, Eye, Star, ArrowRight, FlaskConical } from
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
-import ReactMarkdown from 'react-markdown';
+import FormattedAIReport from '../components/FormattedAIReport';
+import AIPresetButtons from '../components/AIPresetButtons';
 
 const furnitureStyles = [
   { value: 'modern', label: 'Modern' },
@@ -50,7 +51,7 @@ export default function FurniturePlacer() {
         getFloorPlans()
       ]);
       setPlacements(placementsRes.data);
-      setFloorPlans(floorPlansRes.data);
+      setFloorPlans(Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -60,8 +61,8 @@ export default function FurniturePlacer() {
 
   const fetchRooms = async (floorPlanId) => {
     try {
-      const response = await getRooms(floorPlanId);
-      setRooms(response.data);
+      const response = await getRooms({ floor_plan_id: floorPlanId, limit: 100 });
+      setRooms(Array.isArray(response.data?.data) ? response.data.data : []);
     } catch (error) {
       console.error('Error fetching rooms:', error);
     }
@@ -251,6 +252,7 @@ export default function FurniturePlacer() {
             </select>
           </div>
 
+          <AIPresetButtons examples={furnitureStyles.slice(0, 3)} onFill={(scenario, index) => setFormData((previous) => ({ ...previous, style: scenario.value, room_id: rooms.some((room) => String(room.id) === String(previous.room_id)) ? previous.room_id : (rooms[index % rooms.length]?.id || '') }))} prerequisite={!formData.floor_plan_id ? 'Select an existing floor plan. Choose a room when one is available.' : !rooms.length ? 'No rooms are available for this plan; the optional room remains unselected.' : null} />
           <div className="flex justify-end gap-3 pt-4">
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button onClick={handleAnalyze} disabled={analyzing || !formData.floor_plan_id} className="btn-primary flex items-center gap-2">
@@ -301,7 +303,7 @@ export default function FurniturePlacer() {
             {showDetail.full_result && (
               <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
                 <div className="ai-response prose prose-sm max-w-none">
-                  <ReactMarkdown>{showDetail.full_result?.replace(/```[\w]*\n?[\s\S]*?```/g, '').trim()}</ReactMarkdown>
+                  <FormattedAIReport response={showDetail.full_result} />
                 </div>
               </div>
             )}

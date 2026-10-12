@@ -1,3 +1,5 @@
+
+import FullAIExamples, { useFullAIExamples } from "../components/FullAIExamples.jsx";
 import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { getFloorPlans, getAIHistory, analyzeFloorPlan, optimizeLayout, estimateCosts } from '../services/api';
@@ -261,6 +263,8 @@ const analysisTypes = [
 ];
 
 export default function AIAnalysis() {
+  const fullAIExamples = useFullAIExamples();
+
   const [floorPlans, setFloorPlans] = useState([]);
   const [history, setHistory] = useState([]);
   const [selectedFloorPlan, setSelectedFloorPlan] = useState('');
@@ -282,7 +286,7 @@ export default function AIAnalysis() {
         getFloorPlans(),
         getAIHistory()
       ]);
-      setFloorPlans(floorPlansRes.data);
+      setFloorPlans(Array.isArray(floorPlansRes.data?.data) ? floorPlansRes.data.data : []);
       setHistory(historyRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -408,14 +412,14 @@ export default function AIAnalysis() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-64" data-full-ai-workspace="AIAnalysis"><FullAIExamples controller={fullAIExamples} disabled={Boolean(loading || analyzing)} onFill={(index) => setSelectedType(analysisTypes[index].id)} />
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-full-ai-workspace="AIAnalysis"><FullAIExamples controller={fullAIExamples} disabled={Boolean(loading || analyzing)} onFill={(index) => setSelectedType(analysisTypes[index].id)} />
       <div>
         <h1 className="text-3xl font-bold text-gray-800">AI Analysis</h1>
         <p className="text-gray-500 mt-1">Analyze floor plans using AI-powered insights</p>
@@ -437,7 +441,10 @@ export default function AIAnalysis() {
                     setSelectedFloorPlan(e.target.value);
                     if (e.target.value) setImageData('');
                   }}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" data-full-ai-field={fullAIExamples.bind({ current: selectedFloorPlan, change: (e) => {
+                    setSelectedFloorPlan(e.target.value);
+                    if (e.target.value) setImageData('');
+                  }, label: "selectedFloorPlan", manual: Boolean(imageData), json: false, sample: '' }, "p1-17640", undefined)}
                 >
                   <option value="">Select a floor plan</option>
                   {floorPlans.map(fp => (

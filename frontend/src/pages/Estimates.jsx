@@ -55,7 +55,7 @@ export default function Estimates() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -99,7 +99,7 @@ export default function Estimates() {
       };
       if (debouncedSearch) params.search = debouncedSearch;
       const res = await getEstimates(params);
-      setEstimates(res.data.data);
+      setEstimates(Array.isArray(res.data?.data) ? res.data.data : []);
       setPagination(res.data.pagination);
     } catch (error) {
       console.error('Error fetching estimates:', error);
@@ -112,7 +112,7 @@ export default function Estimates() {
   const fetchFloorPlans = async () => {
     try {
       const fpRes = await getFloorPlans({ limit: 100 });
-      setFloorPlans(fpRes.data.data);
+      setFloorPlans(Array.isArray(fpRes.data?.data) ? fpRes.data.data : []);
     } catch (error) {
       console.error('Error fetching floor plans:', error);
     }

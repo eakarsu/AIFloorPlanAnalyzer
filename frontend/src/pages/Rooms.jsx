@@ -54,7 +54,7 @@ export default function Rooms() {
     try {
       const params = {
         page,
-        limit: 10,
+        limit: 20,
         sort_by: sortBy,
         sort_order: sortOrder,
       };
@@ -62,7 +62,7 @@ export default function Rooms() {
         params.search = searchTerm.trim();
       }
       const response = await getRooms(params);
-      setRooms(response.data.data);
+      setRooms(Array.isArray(response.data?.data) ? response.data.data : []);
       setPagination(response.data.pagination);
     } catch (error) {
       console.error('Error fetching rooms:', error);
@@ -72,7 +72,7 @@ export default function Rooms() {
   const fetchFloorPlans = async () => {
     try {
       const fpRes = await getFloorPlans({ limit: 100 });
-      setFloorPlans(fpRes.data.data);
+      setFloorPlans(Array.isArray(fpRes.data?.data) ? fpRes.data.data : []);
     } catch (error) {
       console.error('Error fetching floor plans:', error);
     }

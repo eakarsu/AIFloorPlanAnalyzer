@@ -1,3 +1,5 @@
+import FormattedAIReport from "../components/FormattedAIReport";
+import AIPresetButtons from '../components/AIPresetButtons';
 import { useState } from 'react';
 import { compareContractorBids } from '../services/api';
 import { Scale, Loader2, AlertTriangle, Plus, Trash2 } from 'lucide-react';
@@ -15,6 +17,21 @@ const emptyBid = () => ({
   inclusions: '',
   notes: '',
 });
+
+const bidScenarios = [
+  { label: 'Kitchen renovation', summary: 'Renovate a 200 sq ft kitchen with durable mid-range finishes.', scope: 'Cabinets, counters, lighting, plumbing, and permits.', bids: [
+    { contractor_name: 'Sample Builder A', price: '42000', timeline_weeks: '8', inclusions: 'Cabinets, counters, permits', notes: 'Two-year workmanship warranty; appliances excluded' },
+    { contractor_name: 'Sample Builder B', price: '46500', timeline_weeks: '7', inclusions: 'Cabinets, counters, lighting, permits', notes: 'Three-year workmanship warranty; confirm change orders' },
+  ] },
+  { label: 'Bathroom update', summary: 'Update a small primary bathroom for safer daily use.', scope: 'Walk-in shower, slip-resistant tile, ventilation, and grab-bar backing.', bids: [
+    { contractor_name: 'Sample Builder A', price: '19500', timeline_weeks: '5', inclusions: 'Shower, tile, ventilation', notes: 'Fixtures owner-supplied; one-year warranty' },
+    { contractor_name: 'Sample Builder B', price: '22500', timeline_weeks: '4', inclusions: 'Shower, tile, fixtures, ventilation', notes: 'Two-year warranty; verify permit allowance' },
+  ] },
+  { label: 'Energy retrofit', summary: 'Improve comfort and reduce heating demand in a 1,600 sq ft home.', scope: 'Air sealing, attic insulation, heat-pump installation, and electrical assessment.', bids: [
+    { contractor_name: 'Sample Builder A', price: '30500', timeline_weeks: '6', inclusions: 'Insulation, heat pump, testing', notes: 'Electrical upgrades excluded; verify equipment warranty' },
+    { contractor_name: 'Sample Builder B', price: '34200', timeline_weeks: '5', inclusions: 'Air sealing, insulation, heat pump, testing', notes: 'Includes permit allowance; two-year labor warranty' },
+  ] },
+];
 
 export default function ContractorBidComparison() {
   const [analyzing, setAnalyzing] = useState(false);
@@ -91,6 +108,7 @@ export default function ContractorBidComparison() {
         onSubmit={handleSubmit}
         className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4"
       >
+        <AIPresetButtons examples={bidScenarios} onFill={(scenario) => { setProjectSummary(scenario.summary); setScope(scenario.scope); setBids(scenario.bids.map((bid) => ({ ...bid }))); }} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Project Summary *</label>
           <textarea
@@ -301,9 +319,7 @@ export default function ContractorBidComparison() {
 
           <details className="border rounded-lg p-4">
             <summary className="cursor-pointer text-sm text-gray-500">Raw JSON</summary>
-            <pre className="text-xs mt-2 overflow-auto bg-gray-50 p-3 rounded">
-              {JSON.stringify(result, null, 2)}
-            </pre>
+            <FormattedAIReport response={result} />
           </details>
         </div>
       )}

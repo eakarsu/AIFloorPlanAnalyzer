@@ -113,9 +113,11 @@ export default function Login() {
   };
 
   const fillDemoCredentials = () => {
-    setEmail(import.meta.env.VITE_DEMO_EMAIL || '');
-    setPassword(import.meta.env.VITE_DEMO_PASSWORD || '');
-    setName('Demo User');
+    if (!import.meta.env.VITE_DEMO_EMAIL || !import.meta.env.VITE_DEMO_PASSWORD) return;
+    setMode('login');
+    setEmail(import.meta.env.VITE_DEMO_EMAIL);
+    setPassword(import.meta.env.VITE_DEMO_PASSWORD);
+    setError('');
   };
 
   const switchMode = (newMode) => {
@@ -222,10 +224,14 @@ export default function Login() {
               <button
                 type="button"
                 onClick={fillDemoCredentials}
+                disabled={!import.meta.env.VITE_DEMO_EMAIL || !import.meta.env.VITE_DEMO_PASSWORD}
                 className="w-full mb-6 py-3 px-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white font-medium rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                Auto Fill Demo Credentials
+                Fill demo credentials
               </button>
+              {(!import.meta.env.VITE_DEMO_EMAIL || !import.meta.env.VITE_DEMO_PASSWORD) && (
+                <p className="mb-4 text-sm text-amber-800">Demo autofill is unavailable: a demo email and password must be configured for the frontend.</p>
+              )}
 
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm">
@@ -321,11 +327,6 @@ export default function Login() {
                 </button>
               </div>
 
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <p className="text-center text-sm text-gray-500">
-                  Demo: demo@example.com / password123
-                </p>
-              </div>
             </>
           )}
         </div>

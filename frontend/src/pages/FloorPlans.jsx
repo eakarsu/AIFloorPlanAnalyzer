@@ -48,7 +48,7 @@ export default function FloorPlans() {
         page: currentPage, limit: 20, search: searchTerm,
         sort_by: sortBy, sort_order: sortOrder
       });
-      setFloorPlans(response.data.data);
+      setFloorPlans(Array.isArray(response.data?.data) ? response.data.data : []);
       setPagination(response.data.pagination);
     } catch (error) {
       console.error('Error fetching floor plans:', error);

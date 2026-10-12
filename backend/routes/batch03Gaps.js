@@ -3,7 +3,7 @@
 // Auto-generated Gap-feature endpoints (lean v0).
 // TODO: configure credentials (set OPENROUTER_API_KEY).
 // ============================================================
-const express = require('express');
+import express from 'express';
 const router = express.Router();
 
 let _gfReady = false;
@@ -71,4 +71,4 @@ router.post('/gap-no-payment-escrow-for-contractor-engagement', buildHandler('ga
 router.post('/gap-no-project-management-gantt-module', buildHandler('gap-non-no-project-management-gantt-module', 'No project-management / Gantt module', 'No project-management / Gantt module'));
 router.post('/gap-limited-contractor-marketplace-bidding-only-contractor-dire', buildHandler('gap-non-limited-contractor-marketplace-bidding-only-contractor-dire', 'Limited contractor-marketplace bidding (only contractor dire', 'Limited contractor-marketplace bidding (only contractor directory)'));
 
-module.exports = router;
+export default router;

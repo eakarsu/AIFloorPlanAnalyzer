@@ -74,7 +74,7 @@ export default function Materials() {
       setLoading(true);
       const params = {
         page: currentPage,
-        limit: 12,
+        limit: 20,
         sort_by: sortBy,
         sort_order: sortOrder,
       };
@@ -82,7 +82,7 @@ export default function Materials() {
       if (filterCategory) params.category = filterCategory;
 
       const response = await getMaterials(params);
-      setMaterials(response.data.data);
+      setMaterials(Array.isArray(response.data?.data) ? response.data.data : []);
       setPagination(response.data.pagination);
     } catch (error) {
       console.error('Error fetching materials:', error);

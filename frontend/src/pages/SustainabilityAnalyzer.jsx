@@ -1,3 +1,5 @@
+import FormattedAIReport from "../components/FormattedAIReport";
+import AIPresetButtons from '../components/AIPresetButtons';
 import { useState, useEffect } from 'react';
 import { getFloorPlans, analyzeSustainability } from '../services/api';
 import { Leaf, Loader2, AlertTriangle, TrendingDown } from 'lucide-react';
@@ -27,7 +29,7 @@ export default function SustainabilityAnalyzer() {
     (async () => {
       try {
         const r = await getFloorPlans();
-        setFloorPlans(r.data || []);
+        setFloorPlans(Array.isArray(r.data?.data) ? r.data.data : []);
       } catch (_) {}
       setLoading(false);
     })();
@@ -87,6 +89,11 @@ export default function SustainabilityAnalyzer() {
         onSubmit={handleSubmit}
         className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4"
       >
+        <AIPresetButtons examples={[
+          { label: 'Mixed-humid retrofit', climate_zone: 'ASHRAE 4A', primary_energy_source: 'mixed_grid', materials_focus: 'low_embodied_carbon' },
+          { label: 'Cold-climate electrification', climate_zone: 'ASHRAE 6A', primary_energy_source: 'heat_pump', materials_focus: 'recycled' },
+          { label: 'Warm-climate solar', climate_zone: 'ASHRAE 2B', primary_energy_source: 'solar', materials_focus: 'bio_based' },
+        ]} onFill={(scenario) => setFormData((previous) => ({ ...previous, climate_zone: scenario.climate_zone, primary_energy_source: scenario.primary_energy_source, materials_focus: scenario.materials_focus }))} prerequisite={!formData.floor_plan_id ? 'Select an existing floor plan before running this analysis.' : null} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Floor Plan *</label>
@@ -274,9 +281,7 @@ export default function SustainabilityAnalyzer() {
 
           <details className="border rounded-lg p-4">
             <summary className="cursor-pointer text-sm text-gray-500">Raw JSON</summary>
-            <pre className="text-xs mt-2 overflow-auto bg-gray-50 p-3 rounded">
-              {JSON.stringify(result, null, 2)}
-            </pre>
+            <FormattedAIReport response={result} />
           </details>
         </div>
       )}

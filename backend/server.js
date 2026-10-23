@@ -3518,6 +3518,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/governed-designs', governedDesigns({ pool, authenticate: authenticateToken }));
+app.use('/api/feature-pack', (await import('./routes/featurePack.js')).default({ pool, authenticate: authenticateToken }));
 
 // ============ GLOBAL ERROR HANDLER ============
 app.use((err, req, res, next) => {
